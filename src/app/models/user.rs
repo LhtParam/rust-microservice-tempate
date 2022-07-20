@@ -20,6 +20,12 @@ pub struct User {
     pub email: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Claims {
+    pub username: String,
+    pub password: String,
+}
+
 pub fn get_db_details() -> (String, String) {
     let db_name = match env::var(constants::DB_NAME) {
         Ok(v) => v.to_string(),

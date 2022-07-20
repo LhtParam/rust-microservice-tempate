@@ -1,5 +1,7 @@
-use actix_web::{delete, get, post, put, web, web::Json, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, web::Json, HttpResponse,HttpRequest, Responder};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use mongodb::Client;
+use user_controller::model::Claims;
 use user_controller::model::User;
 use uuid::Uuid;
 
@@ -9,6 +11,8 @@ mod user_controller;
 #[path = "../app/models/user.rs"]
 mod model;
 
+const JWT_SECRET: &[u8] = b"secret";
+
 // routes
 
 #[get("/")]
@@ -17,12 +21,30 @@ pub async fn index() -> impl Responder {
 }
 
 #[get("/get-user/{id}")]
-pub async fn get_user(client: web::Data<Client>, id: web::Path<String>) -> HttpResponse {
-    let user_details = user_controller::get_user(client, id).await;
+pub async fn get_user(
+    client: web::Data<Client>,
+    id: web::Path<String>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let headerToken = req
+        .headers()
+        .get("authorization")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
 
-    match user_details {
-        Ok(user) => HttpResponse::Ok().json(user),
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    let token = headerToken[7..headerToken.len()].to_string();
+
+    if token.len() > 0 {
+        let user_details = user_controller::get_user(client, id).await;
+
+        match user_details {
+            Ok(user) => HttpResponse::Ok().json(user),
+            Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+        }
+    } else {
+        HttpResponse::InternalServerError().body("authorization failed")
     }
 }
 
@@ -84,6 +106,19 @@ pub async fn delete_user(client: web::Data<Client>, id: web::Path<String>) -> Ht
 
     match response {
         Ok(result) => HttpResponse::Ok().json(result),
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    }
+}
+
+// JWT APIs ---------------------
+
+#[post("/create-jwt-token")]
+pub async fn create_jwt_token(req_data: Json<Claims>) -> HttpResponse {
+    let request_data = req_data.into_inner();
+
+    let token_detail = user_controller::create_jwt_token(request_data).await;
+    match token_detail {
+        Ok(token) => HttpResponse::Ok().json(token),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
     }
 }

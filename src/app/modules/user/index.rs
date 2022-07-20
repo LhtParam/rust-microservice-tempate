@@ -1,9 +1,13 @@
 use actix_web::web;
+use chrono::prelude::*;
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use futures::stream::TryStreamExt;
 use mongodb::bson::doc;
 use mongodb::bson::extjson::de::Error;
 use mongodb::results::{DeleteResult, InsertOneResult};
 use mongodb::Client;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[path = "../../constants/index.rs"]
 mod constants;
@@ -11,6 +15,33 @@ mod constants;
 pub(crate) mod model;
 
 use model::User;
+use model::Claims;
+
+#[derive(Error, Debug)]
+pub enum Error_JWT {
+    #[error("wrong credentials")]
+    WrongCredentialsError,
+    #[error("jwt token not valid")]
+    JWTTokenError,
+    #[error("jwt token creation error")]
+    JWTTokenCreationError,
+    #[error("no auth header")]
+    NoAuthHeaderError,
+    #[error("invalid auth header")]
+    InvalidAuthHeaderError,
+    #[error("no permission")]
+    NoPermissionError,
+}
+
+type Result_JWT<T> = std::result::Result<T, Error_JWT>;
+const JWT_SECRET: &[u8] = b"secret";
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Info {
+    id: String,
+    pass: String,
+    exp: usize,
+}
 
 pub async fn create_user(client: web::Data<Client>,request_data: User,) -> Result<InsertOneResult, Error> {
     let user_data = User {
@@ -81,4 +112,24 @@ pub async fn delete_user(client: web::Data<Client>, id: String) -> Result<Delete
     let delete_response = model::delete_one(client, filter).await;
 
     Ok(delete_response)
+}
+
+// JWT Implementation ---------------------
+
+pub async fn create_jwt_token(request_data: Claims) -> Result_JWT<String> {
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::minutes(10))
+        .expect("valid timestamp")
+        .timestamp();
+
+    let claims = Info {
+        id: request_data.username.to_owned(),
+        pass: request_data.password.to_string(),
+        exp: expiration as usize,
+    };
+    let header = Header::new(Algorithm::HS512);
+    let token = encode(&header, &claims, &EncodingKey::from_secret(JWT_SECRET))
+        .map_err(|_| Error_JWT::JWTTokenCreationError);
+
+    return token;
 }
